@@ -1,3 +1,7 @@
+**Language / 语言**: [English](README.en.md) | 简体中文
+
+---
+
 ## 项目名称
 
 **TraeBridge — 面向 AI 编程助手的实时浏览器控制桥**
