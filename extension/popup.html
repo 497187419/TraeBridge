@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>TraeBridge</title>
+  <style>
+    :root {
+      --bg: #1e1f24;
+      --bg-card: #2a2b31;
+      --border: #3a3b42;
+      --text: #e4e6eb;
+      --text-dim: #9aa0a6;
+      --accent: #4c8dff;
+      --green: #34c759;
+      --red: #ff453a;
+      --yellow: #ffd60a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+      padding: 14px;
+    }
+    h1 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+    }
+    .label { color: var(--text-dim); }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+    }
+    .dot.connected { background: var(--green); }
+    .dot.connecting, .dot.reconnecting { background: var(--yellow); }
+    .url {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: var(--text-dim);
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      word-break: break-all;
+      margin: 6px 0 10px;
+    }
+    .tab-info {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 10px;
+      display: none;
+    }
+    .tab-info .tab-title {
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+    .tab-info .tab-url {
+      color: var(--text-dim);
+      font-size: 11px;
+      word-break: break-all;
+    }
+    button {
+      width: 100%;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 0;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      color: #fff;
+      background: var(--accent);
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button.disconnect { background: var(--red); }
+    button:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+  </style>
+</head>
+<body>
+  <h1>TraeBridge</h1>
+
+  <div class="row">
+    <span class="label">连接状态</span>
+    <span class="status">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">未连接</span>
+    </span>
+  </div>
+
+  <div class="row">
+    <span class="label">连接地址</span>
+  </div>
+  <div class="url" id="wsUrl">ws://127.0.0.1:8765</div>
+
+  <div class="tab-info" id="tabInfo">
+    <div class="tab-title" id="tabTitle"></div>
+    <div class="tab-url" id="tabUrl"></div>
+  </div>
+
+  <button id="toggleBtn">连接</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+{"version":3,"file":"types.js","sourceRoot":"","sources":["../../src/mcp/types.ts"],"names":[],"mappings":";AAAA;;;;GAIG;;AAgCH,gCAcC;AA5CD,6BAAwB;AAyBxB;;;;GAIG;AACH,SAAgB,UAAU,CACxB,IAAY,EACZ,KAAa,EACb,WAAmB,EACnB,KAAQ,EACR,OAAoE;IAEpE,OAAO;QACL,IAAI;QACJ,KAAK;QACL,WAAW;QACX,WAAW,EAAE,OAAC,CAAC,MAAM,CAAC,KAAK,CAAkD;QAC7E,OAAO;KACR,CAAC;AACJ,CAAC"}

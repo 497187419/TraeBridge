@@ -1,0 +1,25 @@
+{
+  "name": "traebridge",
+  "version": "1.0.0",
+  "description": "Browser extension + MCP Server that lets AI assistants control your existing browser session via CDP — no Playwright/Puppeteer/Selenium needed",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "build": "cd mcp-server && npm install && npm run build",
+    "start": "cd mcp-server && npm start",
+    "test": "cd mcp-server && node contract-test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/traebridge.git"
+  },
+  "keywords": [
+    "mcp",
+    "browser-automation",
+    "chrome-extension",
+    "ai",
+    "trae",
+    "cdp",
+    "playwright-alternative"
+  ]
+}
