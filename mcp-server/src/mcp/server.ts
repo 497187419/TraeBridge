@@ -31,6 +31,7 @@ import {
   networkStopTool,
   networkListTool,
   networkDetailTool,
+  waitForRequestTool,
 } from "./tools/network";
 import { getCookiesTool, setCookieTool } from "./tools/cookies";
 import { saveAsPdfTool } from "./tools/pdf";
@@ -51,6 +52,7 @@ const ALL_TOOLS: ToolDefinition[] = [
   networkStopTool,
   networkListTool,
   networkDetailTool,
+  waitForRequestTool,
   getCookiesTool,
   setCookieTool,
   saveAsPdfTool,
@@ -77,37 +79,52 @@ function toMcpContent(payload: ToolResultPayload): {
 } {
   const content: McpContentBlock[] = [];
 
-  const data = payload.data as Record<string, unknown> | undefined;
+  // The extension returns bare result objects (not the { data, text, meta }
+  // envelope). Handle the actual formats:
+  //
+  // 1. Screenshots / PDFs: { data: "base64...", format: "png" } or
+  //    { data: "base64...", mimeType: "application/pdf" }
+  // 2. Tools with text: { text: "...", ... } (snapshot, evaluate, list_tabs)
+  // 3. Everything else: { success: true, ... } (network, cookies, navigate, etc.)
 
-  // Screenshots / PDFs: base64 image or pdf payload -> typed content block.
-  const base64 = (data?.base64 ?? data?.data) as string | undefined;
-  const mimeType = (data?.mimeType ?? data?.mime) as string | undefined;
-  if (typeof base64 === "string" && base64.length > 0) {
-    if (typeof mimeType === "string" && mimeType.startsWith("image/")) {
-      content.push({ type: "image", data: base64, mimeType });
+  // 1. Base64 data (screenshot, PDF)
+  if (typeof payload.data === "string" && payload.data.length > 0) {
+    const extra = payload as Record<string, unknown>;
+    const format = (extra.format as string) || "png";
+    const mimeType =
+      (extra.mimeType as string) ||
+      (format === "pdf" ? "application/pdf" : `image/${format}`);
+
+    if (mimeType.startsWith("image/")) {
+      content.push({ type: "image", data: payload.data, mimeType });
     } else {
       content.push({
         type: "resource",
         resource: {
-          uri: `data:${mimeType ?? "application/octet-stream"};base64,${base64}`,
-          blob: base64,
-          mimeType: mimeType ?? "application/octet-stream",
+          uri: `data:${mimeType};base64,${payload.data}`,
+          blob: payload.data,
+          mimeType,
         },
       });
     }
+    return { content };
   }
 
-  // Human readable text.
+  // 2. Human readable text (snapshot, evaluate, list_tabs)
   if (typeof payload.text === "string" && payload.text.length > 0) {
     content.push({ type: "text", text: payload.text });
-  } else if (data !== undefined && content.length === 0) {
-    content.push({ type: "text", text: JSON.stringify(data, null, 2) });
+    return { content };
   }
 
-  if (content.length === 0) {
-    content.push({ type: "text", text: "OK" });
+  // 3. Bare result object — show as formatted JSON.
+  //    This is what network_start/list/detail/stop, get_cookies, set_cookie,
+  //    navigate, click, fill, upload, switch_tab, close_tab, cdp return.
+  if (payload && typeof payload === "object" && Object.keys(payload).length > 0) {
+    content.push({ type: "text", text: JSON.stringify(payload, null, 2) });
+    return { content };
   }
 
+  content.push({ type: "text", text: "OK" });
   return { content };
 }
 
@@ -147,15 +164,19 @@ export async function createMcpServer(
         }
 
         // 3. Forward the call to the extension and wait for the result.
-        //    mapArgs adapts MCP-side arguments to the extension-side shape.
+        //    mapArgs adapts MCP-side arguments to the extension-side shape;
+        //    timeoutMs lets long-polling tools (e.g. wait_for_request)
+        //    override the default 30 s round-trip timeout.
         const extArgs = tool.mapArgs
           ? tool.mapArgs(parsed.data)
           : (parsed.data as Record<string, unknown>);
+        const timeoutMs = tool.timeoutMs ? tool.timeoutMs(parsed.data) : undefined;
         let payload: ToolResultPayload;
         try {
           payload = await sessionManager.callTool(
             tool.name,
-            extArgs
+            extArgs,
+            timeoutMs !== undefined ? { timeoutMs } : undefined
           );
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

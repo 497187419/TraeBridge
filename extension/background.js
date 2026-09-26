@@ -210,13 +210,16 @@ function ensureNetworkListener() {
   networkListenerAdded = true;
   chrome.debugger.onEvent.addListener((source, method, params) => {
     const tabId = source.tabId;
-    if (!tabId || !networkCaptureTabs.has(tabId)) return;
+    if (!tabId) return;
+    if (!networkCaptureTabs.has(tabId) && !hasWaitersForTab(tabId)) return;
     const store = requestsForTab(tabId);
     if (method === 'Network.requestWillBeSent') {
       store.set(params.requestId, {
         requestId: params.requestId,
         url: params.request.url,
         method: params.request.method,
+        headers: params.request.headers || {},
+        postData: params.request.postData,
         timestamp: params.timestamp,
       });
     } else if (method === 'Network.responseReceived') {
@@ -224,12 +227,112 @@ function ensureNetworkListener() {
       if (entry) {
         entry.status = params.response.status;
         entry.mimeType = params.response.mimeType;
+        entry.responseHeaders = params.response.headers || {};
+        if (params.response.timing) entry.timing = params.response.timing;
       }
     } else if (method === 'Network.loadingFinished') {
       const entry = store.get(params.requestId);
-      if (entry) entry.completed = true;
+      if (entry) {
+        entry.completed = true;
+        notifyRequestWaiters(tabId, entry);
+      }
+    } else if (method === 'Network.loadingFailed') {
+      const entry = store.get(params.requestId);
+      if (entry) {
+        entry.failed = true;
+        entry.errorText = params.errorText;
+        notifyRequestWaiters(tabId, entry);
+      }
     }
   });
+}
+
+/* ---- wait_for_request ---- */
+
+const requestWaiters = new Map();   // waiterId -> { tabId, filter, method, resolve, timer }
+let requestWaiterCounter = 1;
+// Per-tab "consumed cursor": requestId returned by the previous wait on that
+// tab. The fast path only matches entries NEWER than the cursor, so a second
+// wait within the same capture won't silently return the previous entry.
+const waitCursors = new Map();      // tabId -> requestId
+
+function hasWaitersForTab(tabId) {
+  for (const w of requestWaiters.values()) {
+    if (w.tabId === tabId) return true;
+  }
+  return false;
+}
+
+function notifyRequestWaiters(tabId, entry) {
+  for (const [id, w] of requestWaiters) {
+    if (w.tabId !== tabId) continue;
+    if (w.filter && !entry.url.includes(w.filter)) continue;
+    if (w.method && entry.method !== w.method) continue;
+    clearTimeout(w.timer);
+    requestWaiters.delete(id);
+    waitCursors.set(tabId, entry.requestId);
+    w.resolve(entry);
+  }
+}
+
+function waiterSummary(entry) {
+  return {
+    requestId: entry.requestId,
+    url: entry.url,
+    method: entry.method,
+    status: entry.status,
+    mimeType: entry.mimeType,
+    completed: entry.completed === true,
+    failed: entry.failed === true,
+    ...(entry.errorText ? { errorText: entry.errorText } : {}),
+  };
+}
+
+async function toolWaitForRequest(args) {
+  const filter = typeof args.filter === 'string' && args.filter ? args.filter : null;
+  const methodFilter = typeof args.method === 'string' && args.method ? args.method.toUpperCase() : null;
+  const timeoutMs = Math.min(Math.max(Number(args.timeout) || 15000, 500), 120000);
+  const tab = await resolveTab();
+  await attachTab(tab.id);
+  ensureNetworkListener();
+
+  // Fast path: a matching request may have already completed while capturing.
+  // Only entries NEWER than the consumed cursor are eligible — see waitCursors.
+  const store = requestsForTab(tab.id);
+  const cursor = waitCursors.get(tab.id);
+  let pastCursor = cursor === undefined;
+  for (const entry of store.values()) {
+    if (!pastCursor) {
+      if (entry.requestId === cursor) pastCursor = true;
+      continue;
+    }
+    if (
+      entry.completed &&
+      (!filter || entry.url.includes(filter)) &&
+      (!methodFilter || entry.method === methodFilter)
+    ) {
+      waitCursors.set(tab.id, entry.requestId);
+      return { success: true, alreadyCompleted: true, matched: waiterSummary(entry) };
+    }
+  }
+
+  const waiterId = `wait-${Date.now().toString(36)}-${requestWaiterCounter++}`;
+  const matched = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      requestWaiters.delete(waiterId);
+      reject(new Error(
+        `wait_for_request: no request ${filter ? `matching "${filter}" ` : ''}completed within ${timeoutMs}ms`
+      ));
+    }, timeoutMs);
+    requestWaiters.set(waiterId, { tabId: tab.id, filter, method: methodFilter, resolve, timer });
+    // Enable Network AFTER registering the waiter so no event is missed.
+    sendCdp('Network.enable').catch((err) => {
+      clearTimeout(timer);
+      requestWaiters.delete(waiterId);
+      reject(err);
+    });
+  });
+  return { success: true, matched: waiterSummary(matched) };
 }
 
 /* ============================================================================
@@ -686,6 +789,7 @@ async function toolNetworkStart() {
   const tab = await resolveTab();
   await attachTab(tab.id);
   networkRequests.set(tab.id, new Map());
+  waitCursors.delete(tab.id);
   networkCaptureTabs.add(tab.id);
   const captureId = `cap-${Date.now().toString(36)}-${networkCaptureCounter++}`;
   networkCaptureIds.set(tab.id, captureId);
@@ -711,19 +815,45 @@ async function toolNetworkList(args) {
   if (args.filter) {
     requests = requests.filter((r) => r.url.includes(args.filter));
   }
+  if (args.method) {
+    const m = String(args.method).toUpperCase();
+    requests = requests.filter((r) => r.method === m);
+  }
   const limit = Number.isInteger(args.limit) && args.limit > 0 ? args.limit : requests.length;
   requests = requests.slice(0, limit);
-  return {
-    count: requests.length,
-    requests: requests.map((r) => ({
+
+  const includeBodies = args.includeBodies === true;
+  const maxBodySize = Number.isInteger(args.maxBodySize) && args.maxBodySize > 0 ? args.maxBodySize : 2000;
+  const out = [];
+  for (const r of requests) {
+    const item = {
       requestId: r.requestId,
       url: r.url,
       method: r.method,
       status: r.status,
       mimeType: r.mimeType,
       completed: r.completed === true,
-    })),
-  };
+      hasPostData: r.postData !== undefined,
+    };
+    if (includeBodies && r.completed) {
+      try {
+        const res = await sendCdp('Network.getResponseBody', { requestId: r.requestId });
+        if (res.base64Encoded) {
+          item.bodyBase64 = res.body.length > maxBodySize
+            ? res.body.slice(0, maxBodySize) + '…[truncated]'
+            : res.body;
+        } else {
+          item.body = typeof res.body === 'string' && res.body.length > maxBodySize
+            ? res.body.slice(0, maxBodySize) + `…[truncated ${res.body.length - maxBodySize} chars]`
+            : res.body;
+        }
+      } catch (err) {
+        item.bodyError = err && err.message ? err.message : String(err);
+      }
+    }
+    out.push(item);
+  }
+  return { count: out.length, requests: out };
 }
 
 async function toolNetworkDetail(args) {
@@ -733,10 +863,19 @@ async function toolNetworkDetail(args) {
   const store = tabId === null ? new Map() : (networkRequests.get(tabId) || new Map());
   const entry = store.get(requestId);
   if (!entry) throw new Error(`network_detail: request "${requestId}" not found`);
-  const res = await sendCdp('Network.getResponseBody', { requestId });
-  let body = res.body;
-  if (!res.base64Encoded) {
-    try { body = JSON.parse(res.body); } catch (_) { /* keep raw string */ }
+  let body = null;
+  let base64Encoded = false;
+  let bodyError = null;
+  try {
+    const res = await sendCdp('Network.getResponseBody', { requestId });
+    body = res.body;
+    base64Encoded = !!res.base64Encoded;
+    if (!base64Encoded) {
+      try { body = JSON.parse(res.body); } catch (_) { /* keep raw string */ }
+    }
+  } catch (err) {
+    // Body unavailable (redirect, preflight, evicted after navigation, ...).
+    bodyError = err && err.message ? err.message : String(err);
   }
   return {
     requestId: entry.requestId,
@@ -744,8 +883,13 @@ async function toolNetworkDetail(args) {
     method: entry.method,
     status: entry.status,
     mimeType: entry.mimeType,
-    base64Encoded: res.base64Encoded,
+    requestHeaders: entry.headers || {},
+    postData: entry.postData,
+    responseHeaders: entry.responseHeaders || {},
+    timing: entry.timing,
+    base64Encoded,
     body,
+    ...(bodyError ? { bodyError } : {}),
   };
 }
 
@@ -937,6 +1081,7 @@ const tools = {
   network_list: toolNetworkList,
   network_detail: toolNetworkDetail,
   network_stop: toolNetworkStop,
+  wait_for_request: toolWaitForRequest,
   get_cookies: toolGetCookies,
   set_cookie: toolSetCookie,
   save_as_pdf: toolSaveAsPdf,

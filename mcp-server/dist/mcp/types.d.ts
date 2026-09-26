@@ -24,10 +24,16 @@ export interface ToolDefinition<TInput = Record<string, unknown>> {
      * heterogeneous argument shapes.
      */
     mapArgs?: (args: any) => Record<string, unknown>;
+    /**
+     * Optional per-call timeout (ms) for the extension round-trip. Overrides
+     * the SessionManager default (30 s) — needed by long-polling tools such as
+     * browser_wait_for_request.
+     */
+    timeoutMs?: (args: any) => number;
 }
 /**
  * Build a tool definition from a zod raw shape. The returned zod object
  * schema is what `server.registerTool()` / `server.tool()` accepts; the
  * MCP SDK converts it to a JSON-Schema for clients automatically.
  */
-export declare function defineTool<T extends z.ZodRawShape>(name: string, title: string, description: string, shape: T, mapArgs?: (args: z.infer<z.ZodObject<T>>) => Record<string, unknown>): ToolDefinition<z.infer<z.ZodObject<T>>>;
+export declare function defineTool<T extends z.ZodRawShape>(name: string, title: string, description: string, shape: T, mapArgs?: (args: z.infer<z.ZodObject<T>>) => Record<string, unknown>, timeoutMs?: (args: z.infer<z.ZodObject<T>>) => number): ToolDefinition<z.infer<z.ZodObject<T>>>;

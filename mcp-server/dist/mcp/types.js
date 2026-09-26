@@ -12,13 +12,14 @@ const zod_1 = require("zod");
  * schema is what `server.registerTool()` / `server.tool()` accepts; the
  * MCP SDK converts it to a JSON-Schema for clients automatically.
  */
-function defineTool(name, title, description, shape, mapArgs) {
+function defineTool(name, title, description, shape, mapArgs, timeoutMs) {
     return {
         name,
         title,
         description,
         inputSchema: zod_1.z.object(shape),
         mapArgs,
+        timeoutMs,
     };
 }
 //# sourceMappingURL=types.js.map

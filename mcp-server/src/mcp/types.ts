@@ -27,6 +27,13 @@ export interface ToolDefinition<TInput = Record<string, unknown>> {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   mapArgs?: (args: any) => Record<string, unknown>;
+  /**
+   * Optional per-call timeout (ms) for the extension round-trip. Overrides
+   * the SessionManager default (30 s) — needed by long-polling tools such as
+   * browser_wait_for_request.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  timeoutMs?: (args: any) => number;
 }
 
 /**
@@ -39,7 +46,8 @@ export function defineTool<T extends z.ZodRawShape>(
   title: string,
   description: string,
   shape: T,
-  mapArgs?: (args: z.infer<z.ZodObject<T>>) => Record<string, unknown>
+  mapArgs?: (args: z.infer<z.ZodObject<T>>) => Record<string, unknown>,
+  timeoutMs?: (args: z.infer<z.ZodObject<T>>) => number
 ): ToolDefinition<z.infer<z.ZodObject<T>>> {
   return {
     name,
@@ -47,5 +55,6 @@ export function defineTool<T extends z.ZodRawShape>(
     description,
     inputSchema: z.object(shape) as unknown as z.ZodType<z.infer<z.ZodObject<T>>>,
     mapArgs,
+    timeoutMs,
   };
 }

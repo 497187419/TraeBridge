@@ -163,7 +163,7 @@ Desktop 1 (user working)              Desktop 2 (AI background operation)
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐│
 │  │  MCP Tool    │  │  Session     │  │  WebSocket Server    ││
 │  │  Registry    │◄─┤  Manager     │◄─┤  (ws://127.0.0.1)   ││
-│  │  (17+ tools) │  │  (tab路由)    │  │  Port: 8765          ││
+│  │  (21 tools)  │  │ (tab routing)│  │  Port: 8765          ││
 │  └──────────────┘  └──────────────┘  └──────────────────────┘│
 └──────────────────────┬───────────────────────────────────────┘
                        │ WebSocket (JSON-RPC 2.0)
@@ -255,7 +255,7 @@ CDPExecutor
 ├── SendKeysExecutor      → Input.dispatchKeyEvent (combo keys, function keys)
 ├── EvaluateExecutor      → Runtime.evaluate (custom JS)
 ├── ScreenshotExecutor    → Page.captureScreenshot (supports element clip)
-├── NetworkExecutor       → Network.enable / disable / list / detail
+├── NetworkExecutor       → Network.enable / disable / list / detail / wait_for_request
 ├── CookieExecutor        → Network.getCookies / setCookies / deleteCookies
 ├── PDFExecutor           → Page.printToPDF
 ├── UploadExecutor        → DOM.setFileInputFiles
@@ -330,9 +330,10 @@ traebridge-mcp-server/
 | `browser_evaluate` | Execute arbitrary JavaScript in page | High |
 | `browser_screenshot` | Screenshot (full page or specific element) | Read-only |
 | `browser_network_start` | Start network capture | Read-only |
-| `browser_network_list` | List captured requests | Read-only |
-| `browser_network_detail` | Get request/response details | Read-only |
+| `browser_network_list` | List captured requests (supports `method` filter, `includeBodies` inline response bodies) | Read-only |
+| `browser_network_detail` | Get request/response details (request headers, POST body, response headers, timing, body) | Read-only |
 | `browser_network_stop` | Stop capture | Read-only |
+| `browser_wait_for_request` | Wait for a request matching URL/method to complete — eliminates the "trigger action → read capture" race | Read-only |
 | `browser_get_cookies` | Get cookies for current domain | Read-only |
 | `browser_set_cookie` | Set cookie | High |
 | `browser_save_as_pdf` | Save page as PDF | Low |
@@ -482,12 +483,12 @@ traebridge-mcp-server/
 - [x] MCP Server initialization (stdio transport)
 - [x] WebSocket Server (port 8765)
 - [x] Tool Registry (mapped to WebSocket messages)
-- [x] 20 MCP Tool implementations
+- [x] 21 MCP Tool implementations
 - [x] Trae MCP config integration verified (contract-test.js 30/30 PASS)
 
 ### Phase 3: Complete Toolset ✅ Completed
 - [x] send_keys, type_text
-- [x] network capture (start/stop/list/detail)
+- [x] network capture (start/stop/list/detail/wait_for_request; list supports method filter and inline bodies; detail includes request headers / POST body / timing)
 - [x] cookie management (get/set)
 - [x] pdf, upload, tab management
 - [x] cdp raw passthrough
@@ -538,6 +539,19 @@ Trae: browser_navigate → zhihu.com (using logged-in cookies)
 Trae: browser_snapshot → get hot list
 Trae: browser_evaluate → extract titles + links
 Trae: compile and output
+```
+
+### Scenario 4: Capturing XHR API data (network capture)
+
+```
+User: "Grab the API data from page 2 of my favorites"
+Trae: browser_network_start → start capture
+Trae: browser_click → click "Next page"
+Trae: browser_wait_for_request({filter:"GetMyFavorites", method:"POST"})
+      → wait for the target API to complete (no race; won't be satisfied by
+        the OPTIONS preflight or a stale earlier request)
+Trae: browser_network_detail → get request headers / POST body / response body
+Trae: browser_network_stop → stop capture
 ```
 
 ---
@@ -606,7 +620,7 @@ TraeBridge/
 │   │   ├── mcp/
 │   │   │   ├── server.ts       # MCP Server initialization
 │   │   │   ├── types.ts        # Tool definition types
-│   │   │   └── tools/          # 14 tool files (20 MCP tools)
+│   │   │   └── tools/          # 14 tool files (21 MCP tools)
 │   │   ├── ws/
 │   │   │   ├── ws-server.ts    # WebSocket Server
 │   │   │   ├── session-manager.ts  # Session management

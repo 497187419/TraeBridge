@@ -1,7 +1,3 @@
-**Language / 语言**: [English](README.en.md) | 简体中文
-
----
-
 ## 项目名称
 
 **TraeBridge — 面向 AI 编程助手的实时浏览器控制桥**
@@ -163,7 +159,7 @@ TraeBridge 的物理级点击（`Input.dispatchMouseEvent`）与网络抓包（`
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐│
 │  │  MCP Tool    │  │  Session     │  │  WebSocket Server    ││
 │  │  Registry    │◄─┤  Manager     │◄─┤  (ws://127.0.0.1)   ││
-│  │  (17+ tools) │  │  (tab路由)    │  │  端口: 8765          ││
+│  │  (21 tools)  │  │  (tab路由)    │  │  端口: 8765          ││
 │  └──────────────┘  └──────────────┘  └──────────────────────┘│
 └──────────────────────┬───────────────────────────────────────┘
                        │ WebSocket (JSON-RPC 2.0)
@@ -255,7 +251,7 @@ CDPExecutor
 ├── SendKeysExecutor      → Input.dispatchKeyEvent (组合键、功能键)
 ├── EvaluateExecutor      → Runtime.evaluate (自定义 JS)
 ├── ScreenshotExecutor    → Page.captureScreenshot (支持 clip 元素区域)
-├── NetworkExecutor       → Network.enable / disable / list / detail
+├── NetworkExecutor       → Network.enable / disable / list / detail / wait_for_request
 ├── CookieExecutor        → Network.getCookies / setCookies / deleteCookies
 ├── PDFExecutor           → Page.printToPDF
 ├── UploadExecutor        → DOM.setFileInputFiles
@@ -330,9 +326,10 @@ traebridge-mcp-server/
 | `browser_evaluate` | 在页面执行任意 JavaScript | 高 |
 | `browser_screenshot` | 截图（整页或指定元素） | 只读 |
 | `browser_network_start` | 开始网络抓包 | 只读 |
-| `browser_network_list` | 列出已捕获请求 | 只读 |
-| `browser_network_detail` | 获取请求/响应详情 | 只读 |
+| `browser_network_list` | 列出已捕获请求（支持 `method` 过滤、`includeBodies` 内联响应体） | 只读 |
+| `browser_network_detail` | 获取请求/响应详情（请求头、POST 体、响应头、timing、body） | 只读 |
 | `browser_network_stop` | 停止抓包 | 只读 |
+| `browser_wait_for_request` | 等待匹配 URL/method 的请求完成，消除"触发动作→读抓包"的竞态 | 只读 |
 | `browser_get_cookies` | 获取当前域 Cookie | 只读 |
 | `browser_set_cookie` | 设置 Cookie | 高 |
 | `browser_save_as_pdf` | 页面另存为 PDF | 低 |
@@ -482,12 +479,12 @@ traebridge-mcp-server/
 - [x] MCP Server 初始化（stdio transport）
 - [x] WebSocket Server（端口 8765）
 - [x] Tool Registry（映射到 WebSocket 消息）
-- [x] 20 个 MCP Tool 实现
+- [x] 21 个 MCP Tool 实现
 - [x] Trae MCP 配置集成验证（contract-test.js 30/30 PASS）
 
 ### Phase 3：完整工具集 ✅ 已完成
 - [x] send_keys, type_text
-- [x] network 抓包（start/stop/list/detail）
+- [x] network 抓包（start/stop/list/detail/wait_for_request，list 支持 method 过滤与内联 body，detail 含请求头/POST 体/timing）
 - [x] cookies 管理（get/set）
 - [x] pdf, upload, tabs 管理
 - [x] cdp raw 透传
@@ -538,6 +535,18 @@ Trae: browser_navigate → zhihu.com（使用已登录 Cookie）
 Trae: browser_snapshot → 获取热榜列表
 Trae: browser_evaluate → 提取标题 + 链接
 Trae: 整理输出
+```
+
+### 场景 4：抓取页面 XHR 接口数据（网络抓包）
+
+```
+用户: "把我收藏夹第 2 页的接口数据抓下来"
+Trae: browser_network_start → 开始抓包
+Trae: browser_click → 点击"下一页"
+Trae: browser_wait_for_request({filter:"GetMyFavorites", method:"POST"})
+      → 等待目标接口完成（消除竞态，不会被 OPTIONS 预检或旧请求误命中）
+Trae: browser_network_detail → 取请求头 / POST 体 / 响应 body
+Trae: browser_network_stop → 结束抓包
 ```
 
 ---
@@ -606,7 +615,7 @@ TraeBridge/
 │   │   ├── mcp/
 │   │   │   ├── server.ts       # MCP Server 初始化
 │   │   │   ├── types.ts        # 工具定义类型
-│   │   │   └── tools/          # 14 个工具文件（20 个 MCP 工具）
+│   │   │   └── tools/          # 14 个工具文件（21 个 MCP 工具）
 │   │   ├── ws/
 │   │   │   ├── ws-server.ts    # WebSocket Server
 │   │   │   ├── session-manager.ts  # 会话管理
